@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[3]:
+# In[1]:
 
 
 import logging
@@ -18,7 +18,7 @@ import pickle
 import re
 
 
-# In[2]:
+# In[6]:
 
 
 class Text2Vector:
@@ -41,7 +41,7 @@ class Text2Vector:
 
     def doc_to_vec(self, list_documents):
         logging.debug('-- From doc_to_vec')
-        assert isinstance(list_documents, list)
+        assert isinstance(list_documents, collections.Sequence)
         len_list = len(list_documents)
         tokenized_documents = []
         
@@ -53,7 +53,8 @@ class Text2Vector:
         return [self.__transform(doc) for doc in tokenized_documents]
 
     def vec_to_doc(self, list_vecs):
-        assert isinstance(list_vecs, list) or isinstance(list_vecs, np.ndarray)
+        assert isinstance(list_vecs, collections.Sequence)
+        
         return [self.__invert_transform(vec) for vec in list_vecs]
 
     def fit(self, list_texts):
@@ -99,3 +100,22 @@ class Text2Vector:
     def export_vocab(self, output_file):
         pd.DataFrame({'word': self.int_to_vocab}).to_csv(output_file, index=False, header=False)
         logging.debug('Exported %s words in vocab into file %s', len(self.int_to_vocab), output_file)
+        
+    def save(self, filename):
+        pickle.dump((self.counts, self.int_to_vocab, self.vocab_to_int), open(filename, 'wb' ))
+    
+    @staticmethod
+    def load(filename):
+        counts, int_to_vocab, vocab_to_int = pickle.load(open(filename, 'rb'))
+        text2vector = Text2Vector()
+        text2vector.counts = counts
+        text2vector.int_to_vocab = int_to_vocab
+        text2vector.vocab_to_int = vocab_to_int
+        return text2vector
+
+
+# In[8]:
+
+
+
+

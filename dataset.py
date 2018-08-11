@@ -1,4 +1,24 @@
 
+# coding: utf-8
+
+# In[6]:
+
+
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+import os
+import pandas as pd
+import numpy as np
+from random import shuffle
+import pickle
+from text2vector import Text2Vector
+import re
+
+
+# In[83]:
+
+
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -12,29 +32,28 @@ import re
 
 
 class Dataset:
-    def __init__(self, dataset=None, batch_size=1, repeat=1, shuffle_buffer_size=1):
-        if dataset is None:
-            self.data = [] # generator
-        else:
-            self.data = dataset.data
+    def __init__(self, data, batch_size, repeat, shuffle_buffer_size):
+        
+        # data: list of tuple, because of the requirement of shuffling
+        self.data = data
         self.__batch_size = batch_size
         self.__repeat = repeat
         self.__shuffle_buffer_size = shuffle_buffer_size
         self.__iterator = None
         
     def map(self, foo):
-        new_dataset = Dataset(None, self.__batch_size, self.__repeat)
-        new_dataset.data = [foo(data_point) for data_point in self.data]
+        new_data = [foo(data_point) for data_point in self.data]
+        new_dataset = Dataset(new_data, self.__batch_size, self.__repeat, self.__shuffle_buffer_size)
         return new_dataset
     
     def batch(self, batch_size):
-        return Dataset(self, batch_size, self.__repeat)
+        return Dataset(self.data, batch_size, self.__repeat, self.__shuffle_buffer_size)
     
     def repeat(self, count):
-        return Dataset(self, self.__batch_size, count)
+        return Dataset(self.data, self.__batch_size, count, self.__shuffle_buffer_size)
     
     def shuffle(self, buffer_size):
-        return Dataset(self, self.__batch_size, self.__repeat, buffer_size)
+        return Dataset(self.data, self.__batch_size, self.__repeat, buffer_size)
     
     def padded_batch(self, batch_size, list_lengths, padded_value):
         if isinstance(list_lengths, int):
@@ -53,12 +72,12 @@ class Dataset:
         else:
             raise NotImplementedError()
             
-        new_dataset = Dataset(None, batch_size, self.__repeat)
-        new_dataset.data = new_data
+        new_dataset = Dataset(new_data, batch_size, self.__repeat, self.__shuffle_buffer_size)
         return new_dataset
     
     def get_iterator(self):
         data_length = len(self.data)
+        self.__do_estimate_number_steps()
         for i in range(self.__repeat):
             for j in range(0, data_length-self.__batch_size+1, self.__batch_size):
                 sample = self.data[j : j + self.__shuffle_buffer_size]
@@ -66,8 +85,11 @@ class Dataset:
                 self.data[j : j + self.__shuffle_buffer_size] = sample
                 start = j
                 end = j+self.__batch_size
-                yield self.data[start: end]
-
+                yield tuple(zip(*self.data[start: end]))
+    
+    def get_data_length(self):
+        return len(self.data)
+    
     @staticmethod    
     def from_csv(filename, columns=None):
         df = pd.read_csv(filename)
@@ -75,22 +97,42 @@ class Dataset:
             datas = [list(df[col]) for col in columns]
         else:
             datas = [list(df[col]) for col in df.columns]
-        new_dataset = Dataset()
-        new_dataset.data = list(zip(*datas))
+        datas = tuple(datas)
+        Dataset.__assert_valid_data(datas)
+        
+        new_dataset = Dataset(list(zip(*datas)), 1, 1, 1)
         return new_dataset
 
     @staticmethod
     def from_tensor_slices(tensors):
-        assert isinstance(tensors, tuple)
-        new_dataset = Dataset()
-        new_dataset.data = list(zip(*tensors))
+        Dataset.__assert_valid_data(tensors)
+        new_tensors = []
+        for i in range(len(tensors)):
+            new_tensors.append(list(tensors[i]))
+        new_dataset = Dataset(list(zip(*new_tensors)), 1, 1, 1)
         return new_dataset
     
     @staticmethod
-    def from_pickle_file(filename):
-        return pickle.load(open(filename, 'rb'))
+    def load(filename):
+        data, batch_size, repeat, shuffle_buffer_size = pickle.load(open(filename, 'rb'))
+        return Dataset(data, batch_size, repeat, shuffle_buffer_size)
     
     def save(self, filename):
-        pickle.dump(self, open(filename, 'wb'))
-
+        pickle.dump((self.data, self.__batch_size, self.__repeat, self.__shuffle_buffer_size), open(filename, 'wb'))
+    
+    @staticmethod
+    def __assert_valid_data(data):
+        if not isinstance(data, tuple):
+            raise DatasetException('data must be a tuple')
+        for i in range(len(data) - 1):
+            if len(data[i]) != len(data[i+1]):
+                raise DatasetException('All element must have the same length. Length of element {}-th is {},                                        length of element {}-th is {}'.format(i, len(data[i]), i+1, len(data[i+1])))
+    def __do_estimate_number_steps(self):
+        num_steps_per_epoch = int(self.get_data_length()/self.__batch_size)
+        logging.info('There will be {} step/epoch'.format(num_steps_per_epoch))
+        logging.info('There will be total {} steps'.format(num_steps_per_epoch*self.__repeat))
+        
+    class DatasetException(Exception):
+        def __init__(self, message):
+            Exception.__init__(self, message)
 
